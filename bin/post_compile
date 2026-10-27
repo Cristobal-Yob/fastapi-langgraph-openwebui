@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+python -m pip install --no-cache-dir --target .webui-packages -r webui/requirements-slim.txt
+python -m pip install --no-cache-dir --no-deps --target .webui-packages -r webui/requirements.txt
