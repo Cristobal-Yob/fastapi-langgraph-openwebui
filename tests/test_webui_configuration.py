@@ -37,3 +37,29 @@ class WebUIConfigurationTests(unittest.TestCase):
             self.assertEqual(os.environ['ENABLE_SIGNUP'],'false')
             self.assertEqual(os.environ.get('WEBUI_AUTH_COOKIE_SECURE'),'true')
             self.assertEqual(os.environ.get('WEBUI_AUTH_COOKIE_SAME_SITE'),'strict')
+
+
+    def test_blank_database_uses_private_sqlite_without_pg_driver(self):
+        env={'AGENT_API_TOKEN':TOKEN,'PUBLIC_ORIGIN':'https://synthetic.example.invalid',
+             'WEBUI_SECRET_KEY':TOKEN,'DATABASE_URL':'','WEBUI_ADMIN_EMAIL':'operator@example.invalid',
+             'WEBUI_ADMIN_PASSWORD':'synthetic-password-not-for-use'}
+        with patch.dict(os.environ,env,clear=True),patch.dict(sys.modules,{'psycopg':None}):
+            validate('openwebui')
+            self.assertTrue(os.environ['DATABASE_URL'].startswith('sqlite:///'))
+            self.assertIn('/.runtime/openwebui/',os.environ['DATABASE_URL'].replace('\\','/'))
+            self.assertEqual(os.environ['WEBUI_AUTH'],'true')
+
+    def test_standalone_entry_uses_same_private_validated_configuration(self):
+        from types import SimpleNamespace
+        from cloud.webui_entry import main
+        env={'AGENT_API_TOKEN':TOKEN,'PUBLIC_ORIGIN':'https://synthetic.example.invalid',
+             'WEBUI_SECRET_KEY':TOKEN,'WEBUI_ADMIN_EMAIL':'operator@example.invalid',
+             'WEBUI_ADMIN_PASSWORD':'synthetic-password-not-for-use'}
+        entry=SimpleNamespace(group='console_scripts',name='open-webui',load=lambda:lambda:None)
+        distribution=SimpleNamespace(version='0.12.3',entry_points=[entry])
+        with patch.dict(os.environ,env,clear=True),patch('cloud.webui_entry.prepare_packages'), \
+                patch('cloud.webui_entry.importlib.metadata.distribution',return_value=distribution), \
+                patch.object(Path,'mkdir'),patch.object(Path,'chmod'):
+            main()
+            self.assertEqual(os.environ['WEBUI_AUTH'],'true')
+            self.assertTrue(os.environ['DATABASE_URL'].startswith('sqlite:///'))

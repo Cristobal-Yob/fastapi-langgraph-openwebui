@@ -1,53 +1,259 @@
-# Publicar Open WebUI y Pipe propios desde cero
+# Open WebUI: personalizar y desplegar por Heroku CLI
 
-**Objetivo: Heroku Cedar con buildpacks clásicos y stack heroku-24. No se afirma compatibilidad Fir/CNB.** Las órdenes de esta guía son acciones futuras del propietario: no se ha creado ninguna app, add-on ni despliegue.
+Empiece por [CREAR_AGENTE.md](CREAR_AGENTE.md): crear una copia propia, configurar Python,
+cambiar el rol y, si hace falta, añadir una herramienta de lectura. Este documento continúa
+desde la raíz de **su copia**, con PowerShell 7, Git y Heroku CLI ya instalados.
 
-## 1. Preparar herramientas y cuentas
+**Estado:** estas guías describen operaciones que usted debe revisar y autorizar. No se ha
+hecho un despliegue, una instalación ni una prueba pagada por redactarlas. Los repositorios
+remotos anteriores no acreditan esta versión local de las fuentes.
 
-Necesita Python 3.12, Git, GitHub CLI, Heroku CLI y cuentas propias. Este proyecto es autónomo y debe publicarse en un repositorio GitHub **privado nuevo**, sin importar historial, entornos, `.env`, OAuth ni auth de ejemplos anteriores. Consulte [README](README.md) para entorno y pruebas.
+## 1. Terminar la configuración específica
 
-## 2. Configurar el agente
+Open WebUI usa SQLite local en `.runtime/openwebui/webui.db`, con directorio privado e ignorado por Git. El arranque genera DATA_DIR y una URL SQLite absoluta cuando DATABASE_URL falta o está vacía. No necesita configurar una URL de base de datos. Cuentas, historial y Pipe son locales; Heroku puede perderlos al reiniciar/deploy. Use una instancia/worker/dyno y conserve la clave de autenticación; no habilite registro público.
 
-Copie `.env.example` a `.env` solo localmente. Genere `AGENT_API_TOKEN` con `secrets.token_urlsafe(32)`. Elija Google Developer API con `GOOGLE_GENAI_USE_VERTEXAI=false` y una clave propia, o Vertex con proyecto/location y ADC configurado expresamente fuera de Git. No use variables/cuentas de otra aplicación. `MODELO` y `FALLBACK_MODEL` deben ser distintos. Las instrucciones y el fallback son los del agente fuente, sin un responder de demostración.
+No envíe credenciales personales ADC de su equipo a Heroku. El camino básico de este tutorial
+usa una clave propia de Google AI Studio y `GOOGLE_GENAI_USE_VERTEXAI=false`. Si su organización
+requiere Vertex, use su mecanismo autorizado de identidad de servidor y permisos mínimos;
+no sustituya ese diseño copiando el archivo ADC local.
 
-`PUBLIC_ORIGIN` debe ser la URL HTTPS exacta que obtenga para su app, sin slash final. La excepción de ejecución local es la API base en localhost; los controles de navegador seguros requieren HTTPS local con un proxy de confianza o un túnel **solo si usted lo autoriza**. No desactive la validación de Origin para probarlos.
+## 2. Crear su historial Git con fuentes revisadas
 
-## Preparación específica
+La copia del primer paso no contiene `.git`. No ejecute `git init` sobre el checkout original
+del mantenedor ni copie su historial. En la carpeta nueva:
 
-Este repositorio ejecuta el **servidor Open WebUI real**, no solamente un Pipe. Su versión fija requiere `langchain-core==1.4.8`, incompatible con el proveedor Google actual del core. `bin/post_compile` instala en `.webui-packages` la lista slim exacta del tag oficial y luego el wheel fijado con --no-deps, sin reintroducir Torch, sentence-transformers ni ONNX. Esta combinación pip-target es una adaptación de este proyecto basada en fuentes upstream, no una instalación pip slim oficialmente documentada. No hay shebangs ni enlaces a rutas temporales; no se instala nada en otro proyecto. Consulte [procedencia, hashes y licencia](webui/UPSTREAM.md). La orden pública es `python -B -m cloud.webui_entry serve --host 0.0.0.0 --port $PORT`; el core usa 127.0.0.1:18080. Para ejecución local cree ese mismo venv e instale `webui/requirements.txt` (Windows: `.webui-venv/Scripts/python.exe -m pip install -r webui/requirements.txt`).
-
-Defina PostgreSQL externo en `DATABASE_URL`, `WEBUI_SECRET_KEY` estable, `WEBUI_ADMIN_EMAIL` y `WEBUI_ADMIN_PASSWORD` de al menos 20 caracteres, en Config Vars. El registro público permanece desactivado. El servidor crea el administrador inicial con esas variables; use una base nueva y verifique que no contenga usuarios previos. No abra temporalmente el registro. Tras iniciar sesión, en Administración > Funciones cree una función Pipe pegando **su propio archivo** `cloud/pipe.py`, guarde y habilítela solo para el operador. El correo del usuario autenticado debe coincidir con el administrador configurado; no se acepta una identidad enviada por el navegador. La función y las cuentas se guardan en PostgreSQL. No habilite subida de archivos, RAG, conexiones externas ni registro: sus ficheros no tienen almacenamiento duradero configurado. Este tutorial cubre texto mediante Pipe, no toda la superficie multiusuario de Open WebUI. Verifique tamaño de slug, memoria y arranque con la instancia elegida antes de considerarlo apto: no se ha construido ni medido un slug Heroku aquí.
-
-## 3. Verificar antes de publicar
-
-```sh
-python -B -m unittest discover -s tests -v
+```powershell
+git init -b main
+$SourceFiles = @(
+    'DURABILIDAD.md',
+    '.env.example', '.gitattributes', '.gitignore',
+    '.python-version', 'CONFIGURACION.md', 'CREAR_AGENTE.md',
+    'HEROKU.md', 'Procfile', 'README.md',
+    'SOURCE.md', 'app.json', 'app/__init__.py',
+    'app/graph.py', 'app/memory.py', 'app/prompts.py',
+    'app/provider.py', 'bin/post_compile', 'cloud/__init__.py',
+    'cloud/api.py', 'cloud/client.py', 'cloud/pipe.py',
+    'cloud/run.py', 'cloud/security.py', 'cloud/serve.py',
+    'cloud/webui_entry.py', 'licenses/OpenWebUI-LICENSE.txt', 'requirements-dev.txt',
+    'requirements.txt', 'tests/test_cloud.py', 'tests/test_graph.py',
+    'tests/test_origin.py', 'tests/test_serve.py', 'tests/test_synchronous.py',
+    'tests/test_webui_configuration.py', 'variant.json', 'webui/UPSTREAM.md',
+    'webui/requirements-slim.txt', 'webui/requirements.txt', 'tests/test_policy_isolation.py'
+)
+git add -- $SourceFiles
+git update-index --chmod=+x bin/post_compile
+if (Test-Path -LiteralPath app/course_context.py) {
+    git add -- app/course_context.py tests/test_course_context.py
+}
+git check-ignore -- .env .venv .runtime
+git status --short
+git diff --cached --stat
+git diff --cached --name-only
 ```
 
-En WhatsApp añada `npm test`. Los tests de PostgreSQL se habilitan únicamente contra una base **sintética aislada** con `RUN_DATABASE_TESTS=true`, `DATABASE_URL` y `STATE_ENCRYPTION_KEY` de prueba. Los tests no deben tocar la cuenta/base real. El resultado omitido no equivale a una prueba de durabilidad.
+Antes de continuar, confirme que no hay `.env`, OAuth, sesiones, registros, datos, paquetes ni
+claves en el índice. Revise también sus modificaciones: los valores secretos nunca pertenecen
+a Python, HTML o documentación. Si añadió la extensión del tutorial, incluya explícitamente
+`app/course_context.py` y `tests/test_course_context.py`; agregue también sus pruebas/datos
+públicos nuevos de manera deliberada, no con un `git add .` indiscriminado.
 
-## 4. Crear repositorio privado y app, con aprobación
+```powershell
+git commit -m "feat: create course assistant from template"
+```
 
-Revise primero el contenido: solo código, tests, manifiestos y estas guías. No publique `.env`, claves, QR, sesiones, ledgers, uploads, entornos ni node_modules. Inicialice Git **dentro de esta carpeta nueva**, añada el allowlist revisado, haga un commit convencional y cree el repositorio privado mediante `gh repo create <su-organizacion>/<nombre> --private --source=. --remote=origin`. Empuje solo ese historial limpio tras su aprobación. No copie el `.git` original.
+Este primer commit es necesario: no existe `HEAD` para el push hasta crearlo. Si Git pide su
+nombre/correo, configure su identidad propia; no use una identidad del mantenedor. El commit
+es una instrucción para el lector, no una operación ejecutada al preparar esta guía.
 
-Cree explícitamente una aplicación **Cedar** en Heroku con stack `heroku-24`, no Fir. Asigne `heroku/python` como buildpack clásico. Su `Procfile` raíz ejecuta `web: python -B -m cloud.run`; no es un comando de desarrollo ni usa reload. `$PORT` lo lee el supervisor y el proceso público escucha en `0.0.0.0:$PORT`.
+## 3. Crear una app o seleccionar una existente
 
-Complete las Config Vars desde un canal privado seguro, no desde un archivo versionado ni comandos que queden en capturas. Obtenga la URL real con `heroku apps:info --app <su-app>` y copie el campo Web URL (o web_url de la respuesta JSON), sin slash final, en PUBLIC_ORIGIN. No suponga que coincide con <nombre>.herokuapp.com: Heroku puede añadir un sufijo. Las dependencias están fijadas en los manifiestos. No hay add-ons automáticos: use únicamente un PostgreSQL externo previamente autorizado cuando corresponda. Verifique TLS y acceso restringido de esa base con su proveedor.
+```powershell
+heroku --version
+heroku login
+$App = Read-Host 'Nombre de su app Heroku'
+heroku create $App --stack heroku-24
+```
 
-Solo después de revisar configuración, alcance y coste, conecte la app al repositorio privado y despliegue la rama elegida, o añada el remoto Heroku y haga el push manual aprobado. Escale a **un solo dyno web** y un solo proceso del core. No habilite autoscaling, workers extra ni despliegues automáticos antes de validar seguridad y presupuesto. El filesystem del dyno es efímero; no use SQLite para estado de seguridad.
+Si la app **ya existe**, omita únicamente `heroku create`: conserve `$App` con su nombre exacto.
+No adivine el nombre de otra cuenta. Use **Cedar/buildpacks clásicos**; las instrucciones no
+describen un despliegue Fir. Crear/configurar una app, hacer push y escalar pueden generar
+cargos; continúe solo con su autorización y presupuesto.
 
-## 5. Aceptación y operación
+```powershell
+heroku buildpacks:set heroku/python --app $App
+heroku buildpacks --app $App
+```
 
-1. Consulte `/health`: debe responder sin datos privados. Verifique que una solicitud de chat/control sin autenticación sea rechazada.
-2. Pruebe primero una consulta inocua con su propio operador. El cliente debe recibir 202 y consultar estado; no mantenga una petición bloqueada más de 30 segundos.
-3. Solo si está autorizado, habilite por separado correo, pairing o sesión pagada y pruebe con destinatario/cuenta propios. Registre aceptación del proveedor separada de recepción humana o reproducción audiovisual.
-4. Compruebe reinicio, reservas inciertas y limpieza con datos sintéticos antes de usar un proveedor real. Un restart borra memoria conversacional; **no** borra PostgreSQL.
-5. Si hay incertidumbre, detenga operaciones y concilie. No reintente envíos ni creaciones ciegamente. Copias de seguridad y rotación de claves requieren preservar la capacidad de descifrar estado existente.
+En aplicaciones existentes revise su lista antes de cambiarla. En WhatsApp Web, Node va antes
+de Python; en audio WhatsApp, apt va primero, luego Node y por último Python. `app.json` no
+aplica automáticamente variables, buildpacks ni formación cuando se usa `heroku create` y Git push.
 
-## Fuentes oficiales
+Obtenga el origen real, que puede contener un sufijo aleatorio:
 
-- [Procfile](https://devcenter.heroku.com/articles/procfile), [Python y .python-version](https://devcenter.heroku.com/articles/python-runtimes).
-- [Disco efímero y SQLite](https://devcenter.heroku.com/articles/sqlite3), [timeout HTTP](https://devcenter.heroku.com/articles/request-timeout), [apagado](https://devcenter.heroku.com/articles/dyno-shutdown-behavior).
-- [Chainlit archivado](https://docs.chainlit.io/get-started/project-status), [Open WebUI](https://docs.openwebui.com/getting-started/quick-start/).
+```powershell
+$Info = heroku apps:info --app $App --json | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or -not $Info.app.web_url) { throw 'No se pudo obtener web_url de la app.' }
+$Uri = [uri]$Info.app.web_url
+if ($Uri.Scheme -ne 'https') { throw 'La app debe tener un origen HTTPS válido.' }
+$Origin = $Uri.GetLeftPart([System.UriPartial]::Authority)
+```
 
-La entrega de estas fuentes no demuestra build Linux, tamaño de slug, rendimiento cloud ni integración con cuentas. Esas comprobaciones requieren un despliegue y autorización separados.
+## 4. Configurar variables por CLI, sin valores literales en el historial
+
+Primero valores públicos, manteniendo separados el modelo principal y fallback:
+
+```powershell
+heroku config:set WEB_CONCURRENCY=1 APP_VARIANT=openwebui GOOGLE_GENAI_USE_VERTEXAI=false MODELO=gemini-3.5-flash-lite FALLBACK_MODEL=gemini-3.5-flash LANGSMITH_TRACING=false LANGCHAIN_TRACING_V2=false "PUBLIC_ORIGIN=$Origin" --app $App
+```
+
+Mantenga `WEB_CONCURRENCY=1`: el estado temporal y las reservas pertenecen a un único proceso. El buildpack puede elegir dos procesos si omite este valor.
+
+No configure `PORT`: Heroku lo asigna. Si sus modelos autorizados son otros, cambie ambos nombres
+por modelos distintos disponibles en su cuenta. Conserve las activaciones de envío/conexión/audio
+deshabilitadas mientras prepara la aplicación.
+
+Para tokens y claves de una sola línea, introduzca el valor mediante una lectura oculta.
+Este helper admite únicamente caracteres simples; rechaza comillas, espacios, saltos de línea
+y metacaracteres que Windows podría reinterpretar. **No sirve para JSON ni una URL de conexión
+arbitraria**. No pone valores literales en el historial ni muestra la salida del setter,
+pero Heroku CLI recibe el valor en sus argumentos: otro proceso con permisos puede observarlo
+brevemente. Úselo únicamente en un equipo y terminal privados, sin grabación ni depuración.
+
+```powershell
+function Set-HerokuSimpleSecret {
+    param([Parameter(Mandatory)][string]$Name)
+    $secureValue = Read-Host "Valor privado para $Name" -AsSecureString
+    $credential = [System.Management.Automation.PSCredential]::new('operator', $secureValue)
+    $value = $credential.GetNetworkCredential().Password
+    try {
+        if ($value -notmatch '^[A-Za-z0-9_./:=+@-]+$') {
+            throw 'Valor complejo: use el procedimiento config:edit explicado debajo.'
+        }
+        & heroku config:set "$Name=$value" --app $App *> $null
+        if ($LASTEXITCODE -ne 0) { throw "No se pudo configurar $Name; no se imprimirá el valor." }
+    } finally {
+        $value = $null
+        $credential = $null
+        $secureValue.Dispose()
+    }
+}
+Set-HerokuSimpleSecret 'AGENT_API_TOKEN'
+Set-HerokuSimpleSecret 'GOOGLE_API_KEY'
+Set-HerokuSimpleSecret 'WEBUI_SECRET_KEY'
+Set-HerokuSimpleSecret 'WEBUI_ADMIN_PASSWORD'
+```
+
+Use para `AGENT_API_TOKEN` el mismo bearer privado que eligió para su agente. Genere secretos
+de operador con `secrets.token_urlsafe(32)`; no los publique ni los incluya en la carpeta de fuentes. Nunca ejecute `heroku config` para
+compartir una captura: muestra los valores. No pegue secretos en ejemplos, chats o commits.
+
+### Valores complejos o multilínea
+
+Open WebUI usa SQLite local en `.runtime/openwebui/webui.db`, con directorio privado e ignorado por Git. El arranque genera DATA_DIR y una URL SQLite absoluta cuando DATABASE_URL falta o está vacía. No necesita configurar una URL de base de datos. Cuentas, historial y Pipe son locales; Heroku puede perderlos al reiniciar/deploy. Use una instancia/worker/dyno y conserve la clave de autenticación; no habilite registro público.
+
+
+El comando nativo siguiente abre todas las variables en un editor. Configure un editor local
+de confianza según su instalación de Heroku CLI (por ejemplo, `EDITOR=notepad` en Windows):
+
+```powershell
+$env:EDITOR = 'notepad'
+heroku config:edit --app $App
+```
+
+**Advertencia:** utiliza un archivo temporal en texto claro y muestra un diff con valores
+sin enmascarar antes de pedir confirmación. No lo use en una pantalla compartida, grabada,
+un editor sincronizado o con copias de respaldo automáticas. Preserve las variables existentes,
+añada `NOMBRE=valor` y guarde/cierre el editor. Para JSON OAuth use una sola línea compacta.
+Revise el diff y confirme solo si es correcto. No use `config:edit NUEVA_VARIABLE`: esta guía
+edita la lista completa. No existe aquí un `config:push` ni un `--prompt` seguro para secretos.
+Si su política no permite este archivo temporal o argumentos transitorios, deténgase y use
+el mecanismo de inyección de secretos autorizado por su organización; no debilite esa política.
+
+Revise todos los nombres de `.env.example`, además de `COURSE_NAME` y `COURSE_CONTACT` si añadió
+esa extensión. No deje un placeholder como credencial. Ningún comando de esta sección comprueba
+por sí solo los permisos de las cuentas ni realiza una conversación real.
+
+## 5. Subir la versión propia y arrancar deliberadamente
+
+Compruebe el `Procfile` de esta carpeta: este es el comando que Heroku debe usar, no una API ajena.
+
+```text
+web: python -B -m cloud.run --port $PORT
+```
+
+El siguiente push puede lanzar un proceso `web` inicial. No suponga que la formación apagada
+de `app.json` se aplica a este recorrido por CLI. Autorice el gasto antes del push y deténgase
+si todavía falta configuración del canal.
+
+Elija una instancia que admita el build y consumo real de este adaptador. Basic no constituye
+una garantía de memoria suficiente para Open WebUI o el SDK de avatar; mida y seleccione una
+instancia adecuada antes de validarlo. Si no tiene un tamaño validado para esos casos, no escale todavía.
+
+```powershell
+heroku git:remote --app $App
+git push heroku HEAD:main
+$DynoType = Read-Host 'Tipo de dyno validado para este adaptador'
+heroku ps:scale "web=1:$DynoType" --app $App
+heroku ps --app $App
+heroku releases --app $App
+Invoke-RestMethod -Uri ($Origin + '/health')
+```
+
+Un build correcto o `/health` no demuestran permisos,
+correo recibido, vinculación, voz reproducida ni vídeo visto.
+
+La URL pública sirve este adaptador. El `/chat` de su core permanece en `127.0.0.1:18080` dentro del dyno; no espere que una petición pública a `/chat` lo alcance. Valide la identidad y el flujo usando su interfaz, sin exponer el puerto interno.
+
+
+Para comprobar sin activar efectos el core de los adaptadores con servidor privado, use las
+pruebas locales de [CREAR_AGENTE.md](CREAR_AGENTE.md). Una comprobación autenticada incorrecta
+debe fallar; no quite el bearer para lograr una respuesta. Active su canal real solo cuando
+quiera probar una acción explícita y sus proveedores estén autorizados.
+
+## 6. Actualizar, diagnosticar y apagar
+
+Cada cambio posterior necesita revisión y un nuevo commit antes del push. No active trazas ni
+imprima mensajes, audios, tokens o respuestas crudas del proveedor para diagnosticar. Comparta
+solo etapa/categoría de error. Un timeout no prueba que un efecto remoto no haya ocurrido;
+concilie envíos inciertos antes de decidir otra acción, sin reintento automático.
+
+```powershell
+heroku ps:scale web=0 --app $App
+heroku ps --app $App
+```
+
+Esto apaga los dynos del proceso, no borra consumo acumulado, suscripciones ni complementos.
+El disco de Heroku es efímero: OAuth, sesiones de WhatsApp y reservas de efectos deben usar el
+almacenamiento externo indicado. No borre credenciales ni cambie namespaces para forzar reintentos.
+
+## Lista final
+
+- [ ] El repositorio propio contiene fuentes revisadas, no secretos ni historial ajeno.
+- [ ] El rol y los criterios corresponden a su negocio y las rutas coinciden con el esquema.
+- [ ] Las pruebas locales y las comprobaciones de su canal real se distinguen.
+- [ ] Buildpacks, variables específicas y origen HTTPS son los de su propia app.
+- [ ] Se autorizó el consumo y se verificó la entrega real antes de llamarlo funcional.
+- [ ] Sabe apagarlo y conservar el estado que no puede perderse.
+
+Referencias oficiales: [preparar Heroku](https://devcenter.heroku.com/articles/preparing-a-codebase-for-heroku-deployment),
+[comandos CLI](https://devcenter.heroku.com/articles/heroku-cli-commands),
+[Config Vars](https://devcenter.heroku.com/articles/config-vars),
+[buildpacks](https://devcenter.heroku.com/articles/managing-buildpacks) y
+[HTTP routing](https://devcenter.heroku.com/articles/http-routing).
+
+## Alcance de las variables
+
+La [plantilla local](.env.example) y `app.json` declaran las mismas variables del usuario.
+El manifiesto añade `APP_VARIANT` como identidad fija; el arranque también la obtiene de
+`variant.json`. No añada variables de otros canales ni configure `PORT`, `CORE_PORT`
+o una URL pública para el núcleo privado. Mantenga los gates en `false` hasta la prueba autorizada.
+El manifiesto usa Developer API; si elige Vertex por CLI, configure el selector, proyecto,
+ubicación e identidad autorizada y no necesita `GOOGLE_API_KEY`.
+El supervisor establece autenticación, registro cerrado, CORS, cookies y modo slim/sin descargas.
+No es necesario repetir esos controles como Config Vars; la protección permanece en el código.
+
+Un `.env` privado local puede usar Vertex aunque la plantilla pública empiece por Developer.
+Antes de ejecutar el bloque `config:set` de Developer, compruebe su perfil; no cambie el backend
+solo para copiar un comando. Para Vertex son necesarios selector `true`, proyecto, ubicación
+y una identidad de servidor autorizada en el destino. El ADC local no se copia ni acredita
+autenticación en Heroku. Este documento no publica los `.env` privados.

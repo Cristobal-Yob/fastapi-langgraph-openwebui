@@ -2,7 +2,7 @@
 
 La base procede del starter local FastAPI/LangGraph revisado el 27 de octubre de 2026. Se copian únicamente fuentes allowlisted; no historial Git, configuración privada, entornos ni estado de cuentas.
 
-`app/graph.py`, `app/prompts.py`, `app/provider.py` y `app/memory.py` conservan los bytes de la base. `app/email_delivery.py` conserva la gramática y planificación, con una frontera cloud nueva. `cloud/` añade autenticación de un operador, trabajos asincrónicos y reservas PostgreSQL antes de efectos. Los adaptadores propios conservan guardas de identidad, voz y/o SDK según corresponda; configuración local Windows/archivos se reemplaza por variables y estado cifrado externo, nunca por eliminación de controles.
+Open WebUI usa SQLite local en `.runtime/openwebui/webui.db`, con directorio privado e ignorado por Git. El arranque genera DATA_DIR y una URL SQLite absoluta cuando DATABASE_URL falta o está vacía. No necesita configurar una URL de base de datos. Cuentas, historial y Pipe son locales; Heroku puede perderlos al reiniciar/deploy. Use una instancia/worker/dyno y conserve la clave de autenticación; no habilite registro público.
 
 Hashes SHA-256 de la base:
 

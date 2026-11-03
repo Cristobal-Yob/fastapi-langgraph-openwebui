@@ -32,8 +32,10 @@ def validate(variant):
             raise ValueError('chainlit_password_configuration_required')
     if variant == 'openwebui':
         validate_token(os.environ.get('WEBUI_SECRET_KEY',''))
-        if not os.environ.get('DATABASE_URL','').startswith(('postgres://','postgresql://')):
-            raise ValueError('openwebui_durable_database_required')
+        data = Path(__file__).resolve().parents[1]/'.runtime'/'openwebui'
+        os.environ['DATA_DIR'] = str(data)
+        if not os.environ.get('DATABASE_URL','').strip():
+            os.environ['DATABASE_URL'] = 'sqlite:///' + (data/'webui.db').as_posix()
         os.environ.update(ENABLE_SIGNUP='false', WEBUI_AUTH='true', ENABLE_PERSISTENT_CONFIG='true',
                           ENABLE_OPENAI_API='false', ENABLE_OLLAMA_API='false',
                           USE_SLIM_DOCKER='true', OFFLINE_MODE='true', HF_HUB_OFFLINE='1',

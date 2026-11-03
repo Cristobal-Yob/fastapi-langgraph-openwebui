@@ -15,8 +15,13 @@ def prepare_packages(packages):
 
 
 def main():
+    from cloud.run import validate
+    validate('openwebui')
     packages=Path(os.environ.get('OPENWEBUI_PACKAGE_DIR',
                   str(Path(__file__).resolve().parents[1]/'.webui-packages')))
+    data=Path(os.environ['DATA_DIR'])
+    data.mkdir(parents=True,exist_ok=True,mode=0o700)
+    data.chmod(0o700)
     prepare_packages(packages)
     distribution=importlib.metadata.distribution('open-webui')
     if distribution.version != '0.12.3':raise SystemExit('The pinned Open WebUI version is required.')
